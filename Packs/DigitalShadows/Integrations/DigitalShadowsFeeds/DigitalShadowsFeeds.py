@@ -1,6 +1,3 @@
-import demistomock as demisto  # noqa: F401
-from CommonServerPython import *  # noqa: F401
-
 """Digital Shadows for Cortex XSOAR."""
 
 ''' IMPORTS '''
@@ -72,6 +69,23 @@ TRIAGE_ITEM = 'triage_item'
 ALERT_FIELD = 'alert'
 
 DS_BASE_URL = 'https://portal-digitalshadows.com'
+
+INDICATOR_TYPES_MAP = {
+    # 'bitcoin-address': "",
+    'email': "Email",
+    'host': 'Host',
+    # 'imphash': "",
+    'ipv4': "IP",
+    'ipv6': "IPv6",
+    # 'ja3': "",
+    'md5': "File MD5",
+    # 'pehash': "",
+    'sha1': "File SHA-1",
+    'sha256': "File SHA-256",
+    'ssdeep': "ssdeep",
+    'url': "URL",
+    # 'yara': ""
+}
 
 
 class Logger(ABC):
@@ -489,15 +503,16 @@ class SearchLightIndicatorsPoller(object):
                 THREAT_INTELLIGENCE, event_num_start, event_created_after, limit))
             return IndicatorsResult(event_num_start, [])
         max_event_num = max([e['event-num'] for e in events])
-
+        LOG(f"max_event_num --> {max_event_num}")
         indicator_event_ids = [e["indicator-id"] for e in events]
         indicators = get_indicators(self.request_handler, indicator_event_ids)
+        LOG(f"indicators in poll indicators: {indicators}")
         if not indicators:
             # if indicators are deleted it is not returned to the list - outside chance that all could be deleted
             # so validate before proceeding
             LOG("{}: No indicators were fetched. Event num start: {}, Event created after: {}, Limit: {}"
                 .format(THREAT_INTELLIGENCE, event_num_start, event_created_after, limit))
-            return IndicatorsResult(event_num_start, [])
+            return IndicatorsResult(max_event_num, [])
         indicator_grouping_ids = [e["indicator-grouping-id"] for e in events]
         indicator_groups = get_indicator_groupings(self.request_handler, indicator_grouping_ids)
         indicators_data = self.merge_data(indicators, indicator_groups)
@@ -655,7 +670,7 @@ def main():
         if demisto.command() == 'fetch-indicators':
             LOG(f"inside indicatores-----> ")
             last_event_num = last_run.get('last_fetch', 0)
-            LOG(f"last_event_num indicatores-----> ")
+            LOG(f"last_event_num indicatores-----> {last_event_num}")
 
             LOG(f"search_light_request_handler_for_indicators indicatores-----> ")
 
@@ -664,20 +679,24 @@ def main():
 
             poll_result = search_light_indicators_poller.poll_indicators(event_num_start=last_event_num, limit=fetchLimit,
                                                                          event_created_after=sinceDate)
-            LOG(f"poll_result indicatores-----> ")
+            LOG(f"poll_result indicatores-----> {poll_result}")
 
             data = poll_result.data
             last_polled_number = poll_result.max_event_number
             LOG(f"indicatores-----> {data}")
+            LOG(f"last_fetch-----> {last_polled_number}")
             if data:
                 indicators = []
                 for item in data:
+                    if INDICATOR_TYPES_MAP.get(item["type"].lower()):
+                        indicator_type = INDICATOR_TYPES_MAP.get(item["type"].lower())
+                    else:
+                        LOG(f"indicator type not found, ignoring indicator: {item}")
                     indicator = {
-                        'type': item['type'],
-                        'fields': {},
+                        'type': indicator_type,
+                        'fields': {"source": item["source"]},
                         'occurred': item["created"],
                         'value': item["value"],
-                        'service': 'Digital Shadows Feed',
                         'rawJSON': item
                     }
                     indicators.append(indicator)
